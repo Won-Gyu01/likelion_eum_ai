@@ -1,0 +1,56 @@
+[
+    {
+        "id": 1,
+        "name": "김철수",
+        "career": "신입",
+        "introduction": "Java와 Spring Boot를 활용한 견고한 백엔드 시스템 구축에 관심이 많은 웹 개발자 지망생입니다. 개인 프로젝트로 간단한 게시판 API를 만들어본 경험이 있습니다.",
+        "skills": "Java, Spring Boot, JPA, MySQL",
+        "location": "충남 아산시",
+        "resumeUrl": "http://resume-chulsoo.com"
+    },
+    {
+        "id": 2,
+        "name": "이영희",
+        "career": "UI/UX 디자이너 (3년)",
+        "introduction": "사용자 중심의 직관적이고 아름다운 인터페이스를 설계하는 3년차 UI/UX 디자이너입니다. Figma와 Adobe XD를 사용한 프로토타이핑 및 디자인 시스템 구축 경험이 있습니다.",
+        "skills": "Figma, Adobe XD, Zeplin, Protopie",
+        "location": "충남 아산시",
+        "resumeUrl": "http://resume-younghee.com"
+    },
+    {
+        "id": 3,
+        "name": "박민수",
+        "career": "데이터 분석가 (2년)",
+        "introduction": "Python과 SQL을 활용하여 비즈니스 문제를 해결하고 데이터 기반의 의사결정을 돕는 2년차 데이터 분석가입니다. 데이터 시각화 및 대시보드 구축에 능숙합니다.",
+        "skills": "Python, SQL, Pandas, Tableau, Scikit-learn",
+        "location": "충남 아산시",
+        "resumeUrl": "http://resume-minsoo.com"
+    },
+    {
+        "id": 4,
+        "name": "최지현",
+        "career": "AI 모델 개발자 (4년)",
+        "introduction": "TensorFlow와 Python을 사용하여 컴퓨터 비전 및 자연어 처리 모델을 개발해온 4년차 AI 엔지니어입니다. 최신 논문을 구현하고 서비스에 적용하는 것을 즐깁니다.",
+        "skills": "Python, TensorFlow, PyTorch, Scikit-learn, Docker",
+        "location": "충남 아산시",
+        "resumeUrl": "http://resume-jihyun.com"
+    },
+    {
+        "id": 5,
+        "name": "정우성",
+        "career": "신입",
+        "introduction": "Node.js 기반의 빠른 백엔드 API 개발에 흥미를 느끼는 신입 백엔드 개발자입니다. 비동기 처리와 데이터베이스 설계에 대한 깊은 이해를 위해 노력하고 있습니다.",
+        "skills": "JavaScript, Node.js, Express, MySQL, RESTful API",
+        "location": "충남 아산시",
+        "resumeUrl": "http://resume-woosung.com"
+    },
+    {
+        "id": 6,
+        "name": "홍길동",
+        "career": "신입",
+        "introduction": "React와 Spring을 함께 사용하여 풀스택 개발 역량을 키우고 있는 웹 개발자 지망생입니다. 사용자에게 편리한 웹 서비스를 직접 만들어보고 싶습니다.",
+        "skills": "React, Spring, MySQL, JavaScript, Java",
+        "location": "충남 아산시",
+        "resumeUrl": "https://example.com/new.pdf"
+    }
+]

@@ -13,10 +13,10 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
 from operator import itemgetter
-from langchain_core.runnables import RunnableLambda # ⭐️ RunnableLambda import 추가
+from langchain_core.runnables import RunnableLambda
 
 # FastAPI
-from fastapi import FastAPI, Header, HTTPException, Depends
+from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 
 # --- 1. 초기 설정 ---
@@ -39,9 +39,10 @@ support_recommender_store = PineconeVectorStore.from_existing_index(
 
 # --- 3. 추천 체인 생성 ---
 
-# ⭐️ 수정: 팀원 추천 체인에 user_id를 추가하는 로직 포함
+# ⭐️ 수정: 팀원 추천 체인 로직을 최종적으로 안정화
 def create_team_recommendation_chain():
     retriever = team_recommender_store.as_retriever(search_kwargs={'k': 3})
+    # ⭐️ 수정: AI가 헷갈리지 않도록 JSON 예시를 3개로 늘림
     prompt_template = """
     당신은 최고의 기술 스타업 채용 전문가입니다. 
     주어진 [모집 공고]와 여러 [후보자 프로필]을 바탕으로, 공고에 가장 적합한 후보자를 순서대로 3명 추천해주세요.
@@ -57,6 +58,20 @@ def create_team_recommendation_chain():
         "career": "후보자의 경력 사항",
         "main_skills": ["핵심 기술1", "기술2"],
         "reason": "추천 이유를 여기에 작성합니다."
+      }},
+      {{
+        "rank": 2,
+        "name": "다른 후보자 이름",
+        "career": "다른 후보자의 경력 사항",
+        "main_skills": ["기술A", "기술B"],
+        "reason": "다른 후보자의 추천 이유를 여기에 작성합니다."
+      }},
+      {{
+        "rank": 3,
+        "name": "또 다른 후보자 이름",
+        "career": "세 번째 후보자의 경력 사항",
+        "main_skills": ["기술C", "기술D"],
+        "reason": "세 번째 후보자의 추천 이유를 여기에 작성합니다."
       }}
     ]
     ---
@@ -69,31 +84,40 @@ def create_team_recommendation_chain():
     question_answer_chain = create_stuff_documents_chain(llm, prompt)
     rag_chain_with_source = create_retrieval_chain(retriever, question_answer_chain)
     
-    # ⭐️ 신규: LLM의 답변과 검색된 문서의 메타데이터를 조합하는 함수
-    def combine_answer_and_metadata(rag_output):
+    # ⭐️ 수정: AI가 단일 객체를 반환해도 처리할 수 있도록 코드를 더 유연하게 변경
+    def combine_data(rag_output):
         try:
-            # LLM이 생성한 JSON 답변을 파싱
-            answer_json = json.loads(rag_output["answer"])
+            parsed_answer = JsonOutputParser().parse(rag_output["answer"])
             retrieved_docs = rag_output["context"]
 
-            # 각 추천 결과에 검색된 문서의 user_id를 추가
+            if isinstance(parsed_answer, dict):
+                answer_json = [parsed_answer] # 단일 객체이면 리스트로 감싸줌
+            elif isinstance(parsed_answer, list):
+                answer_json = parsed_answer
+            else:
+                return {"error": "AI response is not a valid JSON object or list", "raw_answer": parsed_answer}
+
             for i, item in enumerate(answer_json):
-                if i < len(retrieved_docs):
-                    # Pydantic 모델에 맞게 camelCase로 user_id 추가
+                if i < len(retrieved_docs) and isinstance(item, dict):
                     item["userId"] = retrieved_docs[i].metadata.get("user_id")
             
             return answer_json
-        except (json.JSONDecodeError, KeyError):
-            # AI가 JSON 형식을 잘못 만들었을 경우를 대비한 예외 처리
+        except Exception as e:
+            print(f"Error processing AI response: {e}")
             return {"error": "Failed to process AI response", "raw_answer": rag_output.get("answer")}
 
-    # 최종 체인: 검색 -> LLM 답변 생성 -> 답변과 메타데이터 조합
-    final_chain = rag_chain_with_source | RunnableLambda(combine_answer_and_metadata)
+    final_chain = rag_chain_with_source | RunnableLambda(combine_data)
     return final_chain
 
 def create_support_recommendation_chain():
-    # ... (창업 지원 사업 추천 체인은 변경 없음)
-    retriever = support_recommender_store.as_retriever(search_kwargs={'k': 3})
+    # ⭐️ 수정: retriever에 '모집 중'인 사업만 검색하도록 필터 추가
+    retriever = support_recommender_store.as_retriever(
+        search_kwargs={
+            'k': 3,
+            'filter': {'is_recruiting': True} # is_recruiting 메타데이터가 True인 것만 검색
+        }
+    )
+    
     prompt_template = """
     당신은 최고의 창업 컨설턴트입니다.
     주어진 [사용자의 창업 아이템 정보]와 여러 [창업 지원 사업 목록]을 바탕으로, 가장 적합한 지원 사업을 3개 추천해주세요.
@@ -149,6 +173,7 @@ class TeamRecruitmentRequest(BaseModel):
         alias_generator = lambda string: ''.join(word.capitalize() if i != 0 else word for i, word in enumerate(string.split('_')))
         populate_by_name = True
 
+
 class ProfileRequest(BaseModel):
     id: int
     name: str
@@ -174,7 +199,6 @@ class IncubationCenterRequest(BaseModel):
 def read_root():
     return {"status": "AI 추천 서버가 정상적으로 동작하고 있습니다."}
 
-# ⭐️ 수정: API 경로를 백엔드 설정에 맞게 변경
 @app.post("/recommend/users", dependencies=[Depends(api_key_auth)])
 def recommend_team_members(request: TeamRecruitmentRequest):
     input_text = (

@@ -10,6 +10,7 @@ from langchain_pinecone import PineconeVectorStore
 from langchain_upstage import ChatUpstage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
+from langchain.output_parsers import OutputFixingParser
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
 from operator import itemgetter
@@ -39,10 +40,8 @@ support_recommender_store = PineconeVectorStore.from_existing_index(
 
 # --- 3. 추천 체인 생성 ---
 
-# ⭐️ 수정: 팀원 추천 체인 로직을 최종적으로 안정화
 def create_team_recommendation_chain():
     retriever = team_recommender_store.as_retriever(search_kwargs={'k': 3})
-    # ⭐️ 수정: AI가 헷갈리지 않도록 JSON 예시를 3개로 늘림
     prompt_template = """
     당신은 최고의 기술 스타업 채용 전문가입니다. 
     주어진 [모집 공고]와 여러 [후보자 프로필]을 바탕으로, 공고에 가장 적합한 후보자를 순서대로 3명 추천해주세요.
@@ -84,14 +83,13 @@ def create_team_recommendation_chain():
     question_answer_chain = create_stuff_documents_chain(llm, prompt)
     rag_chain_with_source = create_retrieval_chain(retriever, question_answer_chain)
     
-    # ⭐️ 수정: AI가 단일 객체를 반환해도 처리할 수 있도록 코드를 더 유연하게 변경
     def combine_data(rag_output):
         try:
             parsed_answer = JsonOutputParser().parse(rag_output["answer"])
             retrieved_docs = rag_output["context"]
 
             if isinstance(parsed_answer, dict):
-                answer_json = [parsed_answer] # 단일 객체이면 리스트로 감싸줌
+                answer_json = [parsed_answer]
             elif isinstance(parsed_answer, list):
                 answer_json = parsed_answer
             else:
@@ -109,20 +107,20 @@ def create_team_recommendation_chain():
     final_chain = rag_chain_with_source | RunnableLambda(combine_data)
     return final_chain
 
+# ⭐️ 수정: 창업 지원 사업 추천 체인의 프롬프트와 후처리 로직 변경
 def create_support_recommendation_chain():
-    # ⭐️ 수정: retriever에 '모집 중'인 사업만 검색하도록 필터 추가
     retriever = support_recommender_store.as_retriever(
         search_kwargs={
             'k': 3,
-            'filter': {'is_recruiting': True} # is_recruiting 메타데이터가 True인 것만 검색
+            'filter': {'is_recruiting': True}
         }
     )
-    
+    # ⭐️ 수정: 프롬프트에서 AI에게 사실 정보 생성을 요청하는 부분을 모두 제거
     prompt_template = """
     당신은 최고의 창업 컨설턴트입니다.
     주어진 [사용자의 창업 아이템 정보]와 여러 [창업 지원 사업 목록]을 바탕으로, 가장 적합한 지원 사업을 3개 추천해주세요.
     [규칙]
-    - 지원 사업의 이름(title), 지역(region), 지원 분야(support_field), 마감일(end_date), 신청 URL(apply_url)을 명시해야 합니다.
+    - 지원 사업의 이름(title)과 지역(region)을 명시해야 합니다.
     - 왜 적합한지 [지원 사업 목록]의 정보를 근거로 2-3 문장으로 설명해야 합니다.
     - 최종 답변은 반드시 아래 예시와 같은 JSON 리스트 형식으로만 출력해야 합니다.
     [JSON 예시]
@@ -131,9 +129,6 @@ def create_support_recommendation_chain():
         "rank": 1,
         "title": "지원 사업 이름",
         "region": "대상 지역",
-        "support_field": "주요 지원 분야",
-        "end_date": "YYYY-MM-DD",
-        "apply_url": "https://...",
         "reason": "추천 이유를 여기에 작성합니다."
       }}
     ]
@@ -146,7 +141,26 @@ def create_support_recommendation_chain():
     prompt = ChatPromptTemplate.from_template(prompt_template)
     question_answer_chain = create_stuff_documents_chain(llm, prompt)
     rag_chain_with_source = create_retrieval_chain(retriever, question_answer_chain)
-    final_chain = rag_chain_with_source | itemgetter("answer") | JsonOutputParser()
+    
+    # ⭐️ 수정: AI 답변과 메타데이터를 조합하여 모든 사실 정보를 추가하는 함수
+    def combine_support_data(rag_output):
+        try:
+            answer_json = JsonOutputParser().parse(rag_output["answer"])
+            retrieved_docs = rag_output["context"]
+
+            for i, item in enumerate(answer_json):
+                if i < len(retrieved_docs) and isinstance(item, dict):
+                    # 메타데이터에서 정확한 사실 정보를 모두 가져와 추가
+                    item["support_field"] = retrieved_docs[i].metadata.get("support_field")
+                    item["end_date"] = retrieved_docs[i].metadata.get("end_date")
+                    item["apply_url"] = retrieved_docs[i].metadata.get("apply_url")
+            
+            return answer_json
+        except Exception as e:
+            print(f"Error processing AI support response: {e}")
+            return {"error": "Failed to process AI response", "raw_answer": rag_output.get("answer")}
+
+    final_chain = rag_chain_with_source | RunnableLambda(combine_support_data)
     return final_chain
 
 team_recommendation_chain = create_team_recommendation_chain()
@@ -209,7 +223,10 @@ def recommend_team_members(request: TeamRecruitmentRequest):
         f"요구 기술: {request.skills}\n"
         f"상세 내용: {request.content}"
     )
-    result = team_recommendation_chain.invoke({"input": input_text})
+    #수정: with_config를 사용해 "Team Recommendation"이라는 이름표를 붙여줍니다.
+    result = team_recommendation_chain.with_config(
+        {"run_name": "Team Recommendation"}
+    ).invoke({"input": input_text})
     return result
 
 @app.post("/recommend/incubation-centers", dependencies=[Depends(api_key_auth)])
@@ -222,7 +239,10 @@ def recommend_support_programs(request: TeamRecruitmentRequest):
         f"팀 경력 수준: {request.career}\n"
         f"상세 아이템 설명: {request.content}"
     )
-    result = support_recommendation_chain.invoke({"input": input_text})
+    #수정: with_config를 사용해 "Support Program Recommendation"이라는 이름표를 붙여줍니다.
+    result = support_recommendation_chain.with_config(
+        {"run_name": "Support Program Recommendation"}
+    ).invoke({"input": input_text})
     return result
 
 @app.post("/profiles", dependencies=[Depends(api_key_auth)])
